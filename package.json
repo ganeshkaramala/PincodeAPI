@@ -1,0 +1,26 @@
+
+{
+  "name": "",
+  "version": "1.0.0",
+  "description": "Pincode REST API",
+  "author": "",
+  "contributors": [{
+  "name": "",
+  "email": ""
+}],
+  "main": "server.js",
+  "repository": {
+  "type": "git",
+  "url": ""
+},
+  "dependencies": {
+    "express": "~4.x",
+	"body-parser":"~1.5.2"
+  },
+  "preferGlobal": true,
+  "private": true,
+  "publishConfig": {
+  "registry": ""
+},
+  "license": "unlicensed"
+}
