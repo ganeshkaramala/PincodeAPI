@@ -1,12 +1,15 @@
 var reqexpress = require('express'), 
 express = reqexpress(), // Web framework to handle routing requests
-routes = require(__dirname + '/routes'), // Routes for our application
+routes = require( __dirname + '/app/routes'), // Routes for our application
 config = require(__dirname + '/config.json'), // for loading configuration file
-http = require('request');
+http = require('request'),
+dataLoader = require( __dirname + '/app/loaddata');
+
 
 var app = {
 	express : express,
-	http: http
+	http: http,
+	doublyLinkedList : new dataLoader().loadPincodeData()
 }
 
 // process.env.PORT lets the port be set by Heroku
