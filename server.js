@@ -33,6 +33,7 @@ var app = {
 		orderByCoordinates:doublyLinkedListOrderByCoordinates
 	}
 }
+console.log(doublyLinkedList.orderByCoordinates);
 
 // process.env.PORT lets the port be set by Heroku
 var port = process.env.PORT || config.http.port;
