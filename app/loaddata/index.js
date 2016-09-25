@@ -21,6 +21,7 @@ function DataLoader() {
 			}
 			pincodeArray.push(node);
 		});
+		console.log('loading ..............'+pincodeArray.length)
 		return pincodeArray;
 	}
 }
