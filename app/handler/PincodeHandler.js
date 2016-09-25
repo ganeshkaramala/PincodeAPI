@@ -32,21 +32,33 @@ function PincodeHandler(app) {
 		});
 	};
 	me.getGeocode = function(req, res, next) {
-		var responseData = me.getPinGeocode(req.params.pincode);
-		if (!responseData.geocode)
-			responseData.geocode = 'Not found'
+		var pincode = req.params.pincode;
+		var id = req.query.id || 1;
+		var responseData = me.getPinGeocode(pincode,id);
+		if (!responseData.geocode){
+			responseData = me.getPinGeocode(pincode,1);
+			if(!responseData.geocode){
+				responseData.geocode = 'Not found'
+			}
+		}
 		res.json(responseData);
 	};
-	me.getPinGeocode = function(pincode) {
-		var node = me.searchPin(pincode);
+	me.getPinGeocode = function(pincode,id) {
+		var node = me.searchPin(pincode,id);
 		if (node != -1) {
 			node = node.data;
 			var data = {
 				'pincode' : node['pincode'],
-				'geocode' : {
-					'lat' : node['lat'],
-					'lng' : node['lng']
+				'id'      : node['id'],
+				'name'	  : node['name'],
+				'taluk'	  : node['taluk'],
+				'district': node['district'],
+				'state'   : node['state'],
+				'geocode' :{
+					'lat' 	  : node['lat'],
+					'lng'     : node['lng']
 				}
+				
 			};
 			return data;
 		} else {
@@ -56,84 +68,102 @@ function PincodeHandler(app) {
 			};
 		}
 	};
-	me.searchPin = function(pincode) {
-		return app.doublyLinkedList.search('pincode', pincode);
+	me.searchPin = function(pincode,id) {
+		return app.doublyLinkedList.search('pincode', pincode,'id',id);
 	};
 	me.getDistances = function(req, res, next) {
-		var maxDistance = req.query.distance || 100;
-		if(maxDistance >=6373){
-			maxDistance = 6373;
-		}
-		var limit = req.query.limit || 100
-		if(limit >= 200000){
-			limit = 200000;
-		}
-		var sourepincode = req.params.pincode;
-		var node = me.searchPin(sourepincode);
-		if (node == -1) {
-			var data = {
-				'pincode' : sourepincode,
-				'result' : 'Pin code not found'
-			};
-			res.json(data);
-			return
-		}
-		var source = node;
-		var nDistance, pDistance, next, prev;
-		var distanceArray = [];
-		var calculateNext = true;
-		var calculatePrev = true;
-		var oneDegreeLatDistance = 111.23;
-		var oneDegreeLngDistance = 86.565;
-		var latDiff,lngDiff;
-		var next = node.next;
-		var prev = node.prev;
-		var searchedItems = 0;
-		var iterationCount = 0;
-		while (calculateNext && calculatePrev && (next || prev )) {
-			iterationCount ++;
-			if( distanceArray.length == limit){
-				break;
-			}
-			if (calculateNext && next && next.data ) {
-				nDistance = distanceCalculator.distanceKm(source.data.lat, source.data.lng,
-						next.data.lat, next.data.lng);
-				latDiff = next.data.lat - source.data.lat;
-				lngDiff = next.data.lng - source.data.lng;
-				if ((nDistance > maxDistance) && ( (latDiff * oneDegreeLatDistance) > maxDistance) && ((lngDiff * oneDegreeLngDistance)>maxDistance) ){
-					calculateNext = false;
-					nDistance = 0;
-				}else if ( nDistance < maxDistance && distanceArray.length < limit ){
-					distanceArray.push({
-						'pincode': next.data.pincode,
-						'straight-distance': nDistance
-					});
-				}
-				next = next.next;
-				searchedItems ++;
-			}
-			if (calculatePrev && prev && prev.data) {
-				pDistance = distanceCalculator.distanceKm(source.data.lat, source.data.lng,
-						prev.data.lat, prev.data.lng);
-				latDiff = source.data.lat - prev.data.lat;
-				lngDiff = source.data.lng - prev.data.lng;
-				if (pDistance > maxDistance && ( (latDiff * oneDegreeLatDistance) > maxDistance) && ((lngDiff * oneDegreeLngDistance)>maxDistance)){
-					calculatePrev = false;
-					pDistance = 0;
-				}
-				else if ( pDistance < maxDistance && distanceArray.length < limit) {
-					distanceArray.push({
-						'pincode': prev.data.pincode,
-						'straight-distance': pDistance
-					});
-				}
-				prev = prev.prev;
-				searchedItems ++;
-			}
-		}
-		console.log('Iterations = '+iterationCount+' Items searched = '+searchedItems+',result size = '+distanceArray.length)
-		res.json(quickSort.sort(distanceArray,'straight-distance'));
+		var queryParams = getDistanceQueryParams(req);
+		var pincodeData  = validatePincode(queryParams,me,res);
+		var source = me.searchPin(pincodeData.pincode,pincodeData.id);
+		var destination = findDestinations(source,queryParams,distanceCalculator);
+	    quickSort.sort(destination,'straight-distance',queryParams.orderBy);
+	    destination.forEach(function(item){
+	    	delete item['lat'];
+	    	delete item['lng'];
+	    });
+	    delete pincodeData['geocode'];
+		var responseData = {
+				'source' :pincodeData,
+				'destination':destination
+		};
+		res.json(responseData);
 	}
 }
 
+function getDistanceQueryParams(req){
+	var radius = req.query.radius || 100;
+	var limit = req.query.limit || 100;
+	var queryParams = {
+		pincode : req.params.pincode,
+		id      : req.params.id || 1,
+		radius	: radius >= 6373 ? 6373 : radius,
+		limit	: limit >= 200000 ? 200000 : limit,
+		orderBy : req.query.orderBy || 'ASC'
+	}
+	return queryParams;
+}
+function validatePincode(queryParams,me,res){
+	var node = me.getPinGeocode(queryParams.pincode,queryParams.id);
+	if (!node.geocode){
+		node = me.getPinGeocode(queryParams.pincode,1);
+		if(!node.geocode){
+			var data = {
+					'pincode' : queryParams.pincode,
+					'result' : 'Pin code not found'
+			    };
+			res.json(data);
+			return
+		}
+	}
+	return node;
+}
+function findDestinations(source,queryParams,distanceCalculator){
+	var nDistance, pDistance,latDiff,lngDiff,next = source.next,prev = source.prev,maxDistance = queryParams.radius;
+	var distanceArray = [];
+	var calculateNext = true;
+	var calculatePrev = true;
+	var oneDegreeLatDistance = 111.23;
+	var oneDegreeLngDistance = 86.565;
+	var searchedItems = 0;
+	var iterationCount = 0;
+	while (calculateNext && calculatePrev && (next || prev )) {
+		iterationCount ++;
+		if( distanceArray.length == queryParams.limit){
+			break;
+		}
+		if (calculateNext && next && next.data ) {
+			nDistance = distanceCalculator.distanceKm(source.data.lat, source.data.lng,
+					next.data.lat, next.data.lng);
+			latDiff = next.data.lat - source.data.lat;
+			lngDiff = next.data.lng - source.data.lng;
+			if ((nDistance > maxDistance) && ( (latDiff * oneDegreeLatDistance) > maxDistance) && ((lngDiff * oneDegreeLngDistance)>maxDistance) ){
+				calculateNext = false;
+				nDistance = 0;
+			}else if ( nDistance < maxDistance && distanceArray.length < queryParams.limit ){
+				next.data['straight-distance'] =  nDistance;
+				distanceArray.push(next.data);
+			}
+			next = next.next;
+			searchedItems ++;
+		}
+		if (calculatePrev && prev && prev.data) {
+			pDistance = distanceCalculator.distanceKm(source.data.lat, source.data.lng,
+					prev.data.lat, prev.data.lng);
+			latDiff = source.data.lat - prev.data.lat;
+			lngDiff = source.data.lng - prev.data.lng;
+			if (pDistance > maxDistance && ( (latDiff * oneDegreeLatDistance) > maxDistance) && ((lngDiff * oneDegreeLngDistance)>maxDistance)){
+				calculatePrev = false;
+				pDistance = 0;
+			}
+			else if ( pDistance < maxDistance && distanceArray.length < queryParams.limit) {
+				prev.data['straight-distance']  =  pDistance;
+				distanceArray.push(prev.data);
+			}
+			prev = prev.prev;
+			searchedItems ++;
+		}
+	}
+	console.log('Iterations = '+iterationCount+' Items searched = '+searchedItems+' Result size = '+distanceArray.length);
+	return distanceArray;
+}
 module.exports = PincodeHandler

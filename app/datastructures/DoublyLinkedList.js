@@ -20,10 +20,10 @@ function add(data) {
 	this.length++;
 }
 
-function search(key,value){
+function search(key1,value1,key2,value2){
 	var cur = this.head;
 	while(cur.next!=null){
-	  if( cur.data[key] == value )
+	  if( cur.data[key1] == value1 && cur.data[key2] == value2)
 		return cur;		
 	  cur = cur.next;
 	}
