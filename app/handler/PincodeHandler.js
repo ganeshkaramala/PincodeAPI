@@ -68,8 +68,11 @@ function PincodeHandler(app) {
 			};
 		}
 	};
-	me.searchPin = function(pincode,id) {
-		return app.doublyLinkedList.search('pincode', pincode,'id',id);
+	me.searchPin = function(pincode,id,orderBy) {
+		if( orderBy == 'pincode' ){
+			return app.doublyLinkedList.orderByPin.search('pincode', pincode,'id',id);
+		}
+		return app.doublyLinkedList.orderByCoordinates.search('pincode', pincode,'id',id);
 	};
 	me.getDistances = function(req, res, next) {
 		var queryParams = getDistanceQueryParams(req);
@@ -77,14 +80,17 @@ function PincodeHandler(app) {
 		var source = me.searchPin(pincodeData.pincode,pincodeData.id);
 		var destination = findDestinations(source,queryParams,distanceCalculator);
 	    quickSort.sort(destination,'straight-distance',queryParams.orderBy);
-	    destination.forEach(function(item){
-	    	delete item['lat'];
-	    	delete item['lng'];
-	    });
-	    delete pincodeData['geocode'];
+	    var finalDestination = [];
+	    for (var i = 0,len= destination.length; i < len; i++) {
+	    	finalDestination.push(destination[i]);
+	    	if( finalDestination.length > queryParams.limit  ){
+	    		break;
+	    	}
+	    }
+	    pincodeData['destination-size'] = finalDestination.length;
 		var responseData = {
 				'source' :pincodeData,
-				'destination':destination
+				'destination':finalDestination
 		};
 		res.json(responseData);
 	}
@@ -93,11 +99,16 @@ function PincodeHandler(app) {
 function getDistanceQueryParams(req){
 	var radius = req.query.radius || 100;
 	var limit = req.query.limit || 100;
+	var nearBy = req.query.nearBy;
+	if(['district','subregion','region'].indexOf(nearBy) == -1 ) {
+		nearBy = null;	
+	}
 	var queryParams = {
 		pincode : req.params.pincode,
 		id      : req.params.id || 1,
 		radius	: radius >= 6373 ? 6373 : radius,
 		limit	: limit >= 200000 ? 200000 : limit,
+		nearBy  : nearBy,
 		orderBy : req.query.orderBy || 'ASC'
 	}
 	return queryParams;
@@ -119,6 +130,31 @@ function validatePincode(queryParams,me,res){
 }
 function findDestinations(source,queryParams,distanceCalculator){
 	var nDistance, pDistance,latDiff,lngDiff,next = source.next,prev = source.prev,maxDistance = queryParams.radius;
+	var nearBy = queryParams.nearBy ? false : true ;
+	var pincodeRange = [];
+	if(!nearBy){
+		switch(queryParams.nearBy){
+		  case 'district' :
+			  var num =  queryParams.pincode.substring(0,3);
+			  num = num-1;
+			  pincodeRange.push(num);
+			  pincodeRange.push(num+2);
+			  break;
+		  case 'subregion':
+			  var num =  queryParams.pincode.substring(0,2);
+			  num = num-1;
+			  pincodeRange.push(num);
+			  pincodeRange.push(num+2);
+			  break;
+		  case 'region':
+			  var num =  queryParams.pincode.substring(0,1);
+			  num = num-1;
+			  pincodeRange.push(num);
+			  pincodeRange.push(num+2);
+			  break;
+		}
+	}
+	var pincodeRangeLength = pincodeRange.length;
 	var distanceArray = [];
 	var calculateNext = true;
 	var calculatePrev = true;
@@ -128,38 +164,68 @@ function findDestinations(source,queryParams,distanceCalculator){
 	var iterationCount = 0;
 	while (calculateNext && calculatePrev && (next || prev )) {
 		iterationCount ++;
-		if( distanceArray.length == queryParams.limit){
-			break;
-		}
+		var nsubpin,psubpin;
 		if (calculateNext && next && next.data ) {
-			nDistance = distanceCalculator.distanceKm(source.data.lat, source.data.lng,
-					next.data.lat, next.data.lng);
-			latDiff = next.data.lat - source.data.lat;
-			lngDiff = next.data.lng - source.data.lng;
-			if ((nDistance > maxDistance) && ( (latDiff * oneDegreeLatDistance) > maxDistance) && ((lngDiff * oneDegreeLngDistance)>maxDistance) ){
-				calculateNext = false;
-				nDistance = 0;
-			}else if ( nDistance < maxDistance && distanceArray.length < queryParams.limit ){
-				next.data['straight-distance'] =  nDistance;
-				distanceArray.push(next.data);
+			switch(queryParams.nearBy){
+			  case 'district' :
+				  nsubpin = next.data.pincode.substring(0,3);
+				  break;
+			  case 'subregion':
+				  nsubpin = next.data.pincode.substring(0,2);
+				  break;
+			  case 'region':
+				  nsubpin = next.data.pincode.substring(0,1);
+				  break;
 			}
-			next = next.next;
+			if( pincodeRangeLength && (nsubpin <= pincodeRange[0] || nsubpin>=pincodeRange[1] )){
+				next = next.next;
+			}
+			else{
+				nDistance = distanceCalculator.distanceKm(source.data.lat, source.data.lng,
+						next.data.lat, next.data.lng);
+				latDiff = next.data.lat - source.data.lat;
+				lngDiff = next.data.lng - source.data.lng;
+				if ((nDistance > maxDistance) && ( (latDiff * oneDegreeLatDistance) > maxDistance) && ((lngDiff * oneDegreeLngDistance) > maxDistance) ){
+					calculateNext = false;
+					nDistance = 0;
+				}else if ( nDistance < maxDistance  ){
+					next.data['straight-distance'] =  nDistance;
+					distanceArray.push(next.data);
+				}
+				next = next.next;
+			}
 			searchedItems ++;
 		}
 		if (calculatePrev && prev && prev.data) {
-			pDistance = distanceCalculator.distanceKm(source.data.lat, source.data.lng,
-					prev.data.lat, prev.data.lng);
-			latDiff = source.data.lat - prev.data.lat;
-			lngDiff = source.data.lng - prev.data.lng;
-			if (pDistance > maxDistance && ( (latDiff * oneDegreeLatDistance) > maxDistance) && ((lngDiff * oneDegreeLngDistance)>maxDistance)){
-				calculatePrev = false;
-				pDistance = 0;
+			switch(queryParams.nearBy){
+			  case 'district' :
+				  psubpin = prev.data.pincode.substring(0,3);
+				  break;
+			  case 'subregion':
+				  psubpin = prev.data.pincode.substring(0,2);
+				  break;
+			  case 'region':
+				  psubpin = prev.data.pincode.substring(0,1);
+				  break;
 			}
-			else if ( pDistance < maxDistance && distanceArray.length < queryParams.limit) {
-				prev.data['straight-distance']  =  pDistance;
-				distanceArray.push(prev.data);
+			if( pincodeRangeLength && (psubpin<=pincodeRange[0] || psubpin>=pincodeRange[1] )){
+				prev = prev.prev;
 			}
-			prev = prev.prev;
+			else{
+				pDistance = distanceCalculator.distanceKm(source.data.lat, source.data.lng,
+						prev.data.lat, prev.data.lng);
+				latDiff = source.data.lat - prev.data.lat;
+				lngDiff = source.data.lng - prev.data.lng;
+				if (pDistance > maxDistance && ( (latDiff * oneDegreeLatDistance) > maxDistance) && ((lngDiff * oneDegreeLngDistance)>maxDistance) ){
+					calculatePrev = false;
+					pDistance = 0;
+				}
+				else if ( pDistance < maxDistance) {
+					prev.data['straight-distance']  =  pDistance;
+					distanceArray.push(prev.data);
+				}
+				prev = prev.prev;
+			}
 			searchedItems ++;
 		}
 	}

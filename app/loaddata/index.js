@@ -1,11 +1,7 @@
-var fs = require('fs'), 
-DoublyLinkedList = require( __dirname + '/../datastructures/DoublyLinkedList.js');
-QuickSort = require( __dirname + '/../datastructures/QuickSort.js');
+var fs = require('fs');
 
 function DataLoader() {
 	this.loadPincodeData = function() {
-		var doublyLinkedList = new DoublyLinkedList();
-		var quickSort = new QuickSort();
 		var filePath = __dirname + '/inpo.csv';
 		var content = fs.readFileSync(filePath, 'utf8', function(err, data) {
 		});
@@ -25,12 +21,7 @@ function DataLoader() {
 			}
 			pincodeArray.push(node);
 		});
-		pincodeArray = quickSort.sort(pincodeArray, 'lng');
-		pincodeArray = quickSort.sort(pincodeArray, 'lat');
-		pincodeArray.forEach(function(item){
-			doublyLinkedList.add(item);
-		});
-		return doublyLinkedList;
+		return pincodeArray;
 	}
 }
 
