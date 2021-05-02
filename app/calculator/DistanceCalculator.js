@@ -27,8 +27,8 @@ function distance(t1, n1, t2, n2) {
 }
 
 function degToRad(deg) {
-	rad = deg * Math.PI / 180;
-	return rad;
+	return deg * Math.PI / 180;
+	
 }
 function round(x) {
 	return Math.round(x * 1000) / 1000;
